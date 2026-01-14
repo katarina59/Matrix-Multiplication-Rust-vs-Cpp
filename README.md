@@ -1,1 +1,1 @@
-# Matrix-Multiplication-Rust-vs-C-
+# Matrix-Multiplication-Rust-vs-C++
