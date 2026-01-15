@@ -3,15 +3,6 @@ rust/target/
 rust/**/*.rs.bk
 rust/Cargo.lock
 
-# Go
-go/go_matrix
-go/*.exe
-go/*.test
-
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
 
 # IDE
 .vscode/

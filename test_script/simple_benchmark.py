@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""
-Benchmark script for comparing Rust and C++ matrix multiplication implementations.
-Tests three algorithms: Standard, Divide & Conquer, and Strassen with various parallelization depths.
-"""
-
 import subprocess
 import re
 import json
@@ -22,10 +17,9 @@ MAX_DEPTHS = [0, 1, 2, 3, 4]
 NUM_RUNS = 3
 ALGORITHMS = ['Standard', 'DC', 'Strassen']
 
-# Paths - adjusted for actual directory structure
-BASE_DIR = Path(__file__).parent.parent  # izlazimo iz test_script
-RUST_DIR = BASE_DIR / "rust"             # Cargo projekt
-CPP_DIR = BASE_DIR / "c++"               # cpp folder
+BASE_DIR = Path(__file__).parent.parent  
+RUST_DIR = BASE_DIR / "rust"             
+CPP_DIR = BASE_DIR / "c++"              
 RUST_BINARY = RUST_DIR / "target" / "release" / "rust"
 CPP_BINARY = CPP_DIR / "matrix"
 RESULTS_FILE = Path(__file__).parent / "benchmark_results.json"
@@ -41,7 +35,7 @@ def build_programs():
     print("=" * 80)
     
     # Build C++
-    print("\n📦 Building C++ program...")
+    print("\nBuilding C++ program...")
     try:
         subprocess.run(
             ["g++", "-O3", "-std=c++17", "-pthread", "matrix.cpp", "-o", "matrix"],
@@ -50,13 +44,13 @@ def build_programs():
             text=True,
             check=True
         )
-        print(f"✅ C++ build successful: {CPP_BINARY}")
+        print(f"C++ build successful: {CPP_BINARY}")
     except subprocess.CalledProcessError as e:
-        print(f"❌ C++ build failed:\n{e.stderr}")
+        print(f"C++ build failed:\n{e.stderr}")
         sys.exit(1)
     
     # Build Rust
-    print("\n📦 Building Rust program...")
+    print("\nBuilding Rust program...")
     try:
         subprocess.run(
             ["cargo", "build", "--release"],
@@ -65,9 +59,9 @@ def build_programs():
             text=True,
             check=True
         )
-        print(f"✅ Rust build successful: {RUST_BINARY}")
+        print(f"Rust build successful: {RUST_BINARY}")
     except subprocess.CalledProcessError as e:
-        print(f"❌ Rust build failed:\n{e.stderr}")
+        print(f"Rust build failed:\n{e.stderr}")
         sys.exit(1)
 
 # ============================================================================
@@ -94,14 +88,13 @@ def run_single_test(binary: Path, size: int, depth: int) -> Optional[Tuple[int, 
         )
         return parse_output(result.stdout)
     except subprocess.TimeoutExpired:
-        print(f"⏱️  Timeout")
+        print(f" Timeout")
         return None
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f" Error: {e}")
         return None
 
 def run_benchmarks() -> Dict:
-    """Run all benchmark tests."""
     results = {'cpp': {}, 'rust': {}}
     
     total_tests = len(MATRIX_SIZES) * len(MAX_DEPTHS) * 2
@@ -138,9 +131,9 @@ def run_benchmarks() -> Dict:
                         'strassen': avg_strassen,
                         'raw_runs': all_runs
                     }
-                    print(f" ✅ [{avg_standard:.0f}, {avg_dc:.0f}, {avg_strassen:.0f}] ms")
+                    print(f" [{avg_standard:.0f}, {avg_dc:.0f}, {avg_strassen:.0f}] ms")
                 else:
-                    print(" ❌")
+                    print(" ")
                     results[lang][size][depth] = None
     
     return results
@@ -149,13 +142,11 @@ def run_benchmarks() -> Dict:
 # DATA MANAGEMENT
 # ============================================================================
 def save_results(results: Dict):
-    """Save results to JSON file."""
     with open(RESULTS_FILE, 'w') as f:
         json.dump(results, f, indent=2)
-    print(f"\n💾 Results saved to: {RESULTS_FILE}")
+    print(f"\nResults saved to: {RESULTS_FILE}")
 
 def load_results() -> Dict:
-    """Load results from JSON file."""
     with open(RESULTS_FILE, 'r') as f:
         return json.load(f)
 
@@ -163,13 +154,9 @@ def load_results() -> Dict:
 # PLOTTING FUNCTIONS
 # ============================================================================
 def plot_algorithm_comparison(results: Dict, output_dir: Path):
-    """
-    Plot 1: Poređenje algoritama za svaki jezik posebno (sa najboljim depth-om).
-    Dva grafikona (C++ i Rust) side-by-side.
-    """
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
     
-    colors = {'standard': '#2E86AB', 'dc': '#F18F01', 'strassen': '#C73E1D'}
+    colors = {'standard': "#AB2E96", 'dc': "#247231", 'strassen': "#0C2859"}
     algo_names = {'standard': 'Standard', 'dc': 'Divide & Conquer', 'strassen': 'Strassen'}
     
     for ax, lang in [(ax1, 'cpp'), (ax2, 'rust')]:
@@ -212,13 +199,9 @@ def plot_algorithm_comparison(results: Dict, output_dir: Path):
     print("  ✓ 1_algorithm_comparison.png")
 
 def plot_language_comparison(results: Dict, output_dir: Path):
-    """
-    Plot 2: C++ vs Rust za svaki algoritam posebno.
-    Tri grafikona (Standard, DC, Strassen) side-by-side.
-    """
     fig, axes = plt.subplots(1, 3, figsize=(20, 6))
     
-    lang_colors = {'cpp': '#00599C', 'rust': '#CE422B'}
+    lang_colors = {'cpp': "#9C0060", 'rust': "#DFBE00"}
     algo_keys = ['standard', 'dc', 'strassen']
     algo_names = ['Standard', 'Divide & Conquer', 'Strassen']
     
@@ -263,13 +246,9 @@ def plot_language_comparison(results: Dict, output_dir: Path):
     print("  ✓ 2_language_comparison.png")
 
 def plot_parallelization_impact(results: Dict, output_dir: Path):
-    """
-    Plot 3: Uticaj dubine paralelizacije za DC i Strassen algoritme.
-    Četiri grafikona (C++ DC, C++ Strassen, Rust DC, Rust Strassen).
-    """
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
     
-    depth_colors = ['#A23B72', '#F18F01', '#C73E1D', '#6A994E', '#BC4B51']
+    depth_colors = ['#A23B72', "#049CB6", "#114D05", "#EDF423", "#95363B"]
     
     configs = [
         (axes[0, 0], 'cpp', 'dc', 'C++: Divide & Conquer'),
@@ -311,10 +290,6 @@ def plot_parallelization_impact(results: Dict, output_dir: Path):
     print("  ✓ 3_parallelization_impact.png")
 
 def plot_speedup_analysis(results: Dict, output_dir: Path):
-    """
-    Plot 4: Speedup analiza (najbolji paralelni vs sekvencijalni).
-    Bar chart za 2048x2048 matricu.
-    """
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
     
     size = 2048
@@ -346,7 +321,7 @@ def plot_speedup_analysis(results: Dict, output_dir: Path):
                 labels.append(algo_name)
         
         x = np.arange(len(labels))
-        bars = ax.bar(x, speedups, color=['#F18F01', '#C73E1D'], alpha=0.8, edgecolor='black')
+        bars = ax.bar(x, speedups, color=["#C52CAB", "#1BAAB4"], alpha=0.8, edgecolor='black')
         
         # Add value labels on bars
         for bar in bars:
@@ -367,67 +342,6 @@ def plot_speedup_analysis(results: Dict, output_dir: Path):
     plt.close()
     print("  ✓ 4_speedup_analysis.png")
 
-def plot_relative_performance(results: Dict, output_dir: Path):
-    """
-    Plot 5: Relativne performanse C++ vs Rust (procenat razlike).
-    """
-    fig, ax = plt.subplots(figsize=(12, 7))
-    
-    algos = ['standard', 'dc', 'strassen']
-    algo_names = ['Standard', 'Divide & Conquer', 'Strassen']
-    colors = ['#2E86AB', '#F18F01', '#C73E1D']
-    
-    for algo, algo_name, color in zip(algos, algo_names, colors):
-        percentages = []
-        sizes = []
-        
-        for size in MATRIX_SIZES:
-            if size not in results['cpp'] or size not in results['rust']:
-                continue
-            
-            # Get best times for both languages
-            cpp_best = float('inf')
-            rust_best = float('inf')
-            
-            for depth in MAX_DEPTHS:
-                if depth in results['cpp'][size]:
-                    data = results['cpp'][size][depth]
-                    if data and data[algo] < cpp_best:
-                        cpp_best = data[algo]
-                
-                if depth in results['rust'][size]:
-                    data = results['rust'][size][depth]
-                    if data and data[algo] < rust_best:
-                        rust_best = data[algo]
-            
-            if cpp_best != float('inf') and rust_best != float('inf'):
-                # Positive = Rust faster, Negative = C++ faster
-                pct_diff = ((cpp_best - rust_best) / rust_best) * 100
-                percentages.append(pct_diff)
-                sizes.append(size)
-        
-        if percentages:
-            ax.plot(sizes, percentages, marker='o', linewidth=2.5, markersize=10,
-                   label=algo_name, color=color)
-    
-    ax.axhline(y=0, color='black', linestyle='-', linewidth=1.5)
-    ax.fill_between(MATRIX_SIZES, 0, 100, alpha=0.1, color='red', label='Rust brži')
-    ax.fill_between(MATRIX_SIZES, -100, 0, alpha=0.1, color='blue', label='C++ brži')
-    
-    ax.set_xlabel('Dimenzija matrice (N×N)', fontsize=13, fontweight='bold')
-    ax.set_ylabel('Relativna razlika (%)', fontsize=13, fontweight='bold')
-    ax.set_title('C++ vs Rust: Relativne performanse\n(pozitivno = Rust brži)', 
-                 fontsize=14, fontweight='bold')
-    ax.set_xscale('log', base=2)
-    ax.grid(True, alpha=0.3)
-    ax.legend(loc='best', fontsize=11)
-    ax.set_xticks(sizes)
-    ax.set_xticklabels([str(s) for s in sizes])
-    
-    plt.tight_layout()
-    plt.savefig(output_dir / '5_relative_performance.png', dpi=300, bbox_inches='tight')
-    plt.close()
-    print("  ✓ 5_relative_performance.png")
 
 def generate_all_plots(results: Dict):
     """Generate all visualization plots."""
@@ -442,22 +356,20 @@ def generate_all_plots(results: Dict):
     plot_language_comparison(results, PLOTS_DIR)
     plot_parallelization_impact(results, PLOTS_DIR)
     plot_speedup_analysis(results, PLOTS_DIR)
-    plot_relative_performance(results, PLOTS_DIR)
     
-    print(f"\n✅ All plots saved to: {PLOTS_DIR}")
+    print(f"\nAll plots saved to: {PLOTS_DIR}")
 
 # ============================================================================
 # SUMMARY STATISTICS
 # ============================================================================
 def print_summary(results: Dict):
-    """Print comprehensive summary statistics."""
     print("\n" + "=" * 80)
     print("SUMMARY STATISTICS")
     print("=" * 80)
     
     # Table for 2048x2048 matrix
     size = 2048
-    print(f"\n📊 Results for {size}×{size} matrix:")
+    print(f"\nResults for {size}×{size} matrix:")
     print("-" * 80)
     print(f"{'Language':<10} {'Algorithm':<18} {'Best Time':<12} {'Depth':<8} {'Speedup'}")
     print("-" * 80)
@@ -487,7 +399,7 @@ def print_summary(results: Dict):
     
     # Overall winner
     print("\n" + "=" * 80)
-    print("🏆 OVERALL WINNER (2048×2048)")
+    print("OVERALL WINNER (2048×2048)")
     print("=" * 80)
     
     fastest_time = float('inf')
@@ -525,7 +437,7 @@ def main():
     
     try:
         if args.plot_only:
-            print("\n📊 Loading existing results...")
+            print("\nLoading existing results...")
             results = load_results()
             generate_all_plots(results)
         else:
@@ -536,20 +448,20 @@ def main():
                 results = run_benchmarks()
                 save_results(results)
             else:
-                print("\n📊 Loading existing results...")
+                print("\nLoading existing results...")
                 results = load_results()
             
             generate_all_plots(results)
             print_summary(results)
         
         print("\n" + "=" * 80)
-        print("✅ BENCHMARK COMPLETE!")
+        print("BENCHMARK COMPLETE!")
         print("=" * 80 + "\n")
         
     except KeyboardInterrupt:
-        print("\n\n⚠️  Interrupted by user")
+        print("\n\nInterrupted by user")
     except Exception as e:
-        print(f"\n\n❌ Error: {e}")
+        print(f"\n\n Error: {e}")
         raise
 
 if __name__ == "__main__":
