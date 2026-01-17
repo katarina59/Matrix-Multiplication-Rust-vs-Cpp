@@ -1,381 +1,239 @@
-use std::time::Instant;
 use std::env;
+use std::time::Instant;
 use rand::Rng;
-use rayon::prelude::*;
+use rayon::join;
 
 const BASE_CASE: usize = 128;
-fn main() {
-    let mut args = env::args().skip(1);
 
-    let n: usize = match args.next() {
-        Some(value) => match value.parse() {
-            Ok(v) => v,
-            Err(_) => {
-                eprintln!("Error: matrix dimension must be an integer");
-                return;
-            }
-        },
-        None => {
-            println!("Usage:");
-            println!("  program <n> [max_parallel_depth] [test]");
-            return;
-        }
-    };
-    
-    let max_parallel_depth: usize = match args.next() {
-        Some(value) => value.parse().unwrap_or(3),
-        None => 3,
-    };
-    
-    let test_mode: bool = matches!(args.next().as_deref(), Some("test"));
-
-    let matrices = (
-        create_random_matrix(n, n),
-        create_random_matrix(n, n),
-    );
-    
-    let (a, b) = (&matrices.0, &matrices.1);
-    
-    let (standard_res, t_standard) = {
-        let start = Instant::now();
-        let result = standard_implementation(a, b);
-        (result, start.elapsed())
-    };
-    
-    let (dc_res, t_dc) = {
-        let start = Instant::now();
-        let result = divide_and_conquer_implementation(a, b, 0, max_parallel_depth);
-        (result, start.elapsed())
-    };
-    
-    let (strassen_res, t_strassen) = {
-        let start = Instant::now();
-        let result = strassen_implementation(a, b, 0, max_parallel_depth);
-        (result, start.elapsed())
-    };
-    
-    if test_mode {
-        println!(
-            "{} {} {}",
-            t_standard.as_millis(),
-            t_dc.as_millis(),
-            t_strassen.as_millis()
-        );
-        return;
-    }
-    
-    let dc_ok = compare_matrices(&standard_res, &dc_res);
-    let strassen_ok = compare_matrices(&standard_res, &strassen_res);
-    
-    println!(
-        "Correctness check:\n\
-         - Divide & Conquer: {}\n\
-         - Strassen: {}\n",
-        if dc_ok { "OK" } else { "EROOR" },
-        if strassen_ok { "OK" } else { "ERROR" }
-    );
-    
-    println!("Matrix size: {} × {}\n", n, n);
-    
-    println!(
-        "Execution times (ms):\n\
-         - Standard: {}\n\
-         - Divide & Conquer: {}\n\
-         - Strassen: {}\n",
-        t_standard.as_millis(),
-        t_dc.as_millis(),
-        t_strassen.as_millis()
-    );
-    
-
+#[derive(Clone)]
+struct Matrix {
+    n: usize,
+    data: Vec<f64>,
 }
 
-fn standard_implementation(
-    a: &Vec<Vec<f64>>, 
-    b: &Vec<Vec<f64>>
-) -> Vec<Vec<f64>> {
-    let n = a.len();
-    let mut result = vec![vec![0.0; n]; n];
+impl Matrix {
+    fn new(n: usize) -> Self {
+        let mut rng = rand::thread_rng();
+        let mut data = Vec::with_capacity(n * n);
+
+        for _ in 0..n * n {
+            data.push(rng.gen_range(0.0..100.0));
+        }
+
+        Self { n, data }
+    }
+
+    #[inline]
+    fn get(&self, i: usize, j: usize) -> f64 {
+        self.data[i * self.n + j]
+    }
+
+    #[inline]
+    fn set(&mut self, i: usize, j: usize, v: f64) {
+        self.data[i * self.n + j] = v;
+    }
+}
+
+
+fn measure<F, R>(f: F) -> (R, u128)
+where
+    F: FnOnce() -> R,
+{
+    let start = Instant::now();
+    let result = f();
+    (result, start.elapsed().as_millis())
+}
+
+
+fn standard(a: &Matrix, b: &Matrix) -> Matrix {
+    let n = a.n;
+    let mut c = Matrix { n, data: vec![0.0; n * n] };
 
     for i in 0..n {
         for k in 0..n {
-            let aik = a[i][k];
+            let aik = a.get(i, k);
             for j in 0..n {
-                result[i][j] += aik * b[k][j];
+                c.data[i * n + j] += aik * b.get(k, j);
             }
         }
     }
 
-    result
+    c
 }
 
 
-fn divide_and_conquer_implementation(
-    a: &Vec<Vec<f64>>,
-    b: &Vec<Vec<f64>>,
-    level: usize,
-    max_parallel_level: usize,
-) -> Vec<Vec<f64>> {
-    let size = a.len();
-
+fn dc_mul(a: &Matrix, b: &Matrix, ar: usize, ac: usize, br: usize, bc: usize, size: usize) -> Matrix {
     if size <= BASE_CASE {
-        return standard_implementation(a, b);
-    }
+        let mut sub_a = Matrix { n: size, data: vec![0.0; size * size] };
+        let mut sub_b = sub_a.clone();
 
-    let half = size / 2;
-    let mut result = vec![vec![0.0; size]; size];
-
-    let (a11, a12, a21, a22) = (
-        extract_block(a, 0, 0, half),
-        extract_block(a, 0, half, half),
-        extract_block(a, half, 0, half),
-        extract_block(a, half, half, half),
-    );
-
-    let (b11, b12, b21, b22) = (
-        extract_block(b, 0, 0, half),
-        extract_block(b, 0, half, half),
-        extract_block(b, half, 0, half),
-        extract_block(b, half, half, half),
-    );
-
-    let compute = |x: &Vec<Vec<f64>>, y: &Vec<Vec<f64>>| {
-        divide_and_conquer_implementation(x, y, level + 1, max_parallel_level)
-    };
-
-    let (c11a, c11b, c12a, c12b, c21a, c21b, c22a, c22b) =
-        if level < max_parallel_level {
-            let (c11a, c11b) = rayon::join(|| compute(&a11, &b11), || compute(&a12, &b21));
-            let (c12a, c12b) = rayon::join(|| compute(&a11, &b12), || compute(&a12, &b22));
-            let (c21a, c21b) = rayon::join(|| compute(&a21, &b11), || compute(&a22, &b21));
-            let (c22a, c22b) = rayon::join(|| compute(&a21, &b12), || compute(&a22, &b22));
-
-            (c11a, c11b, c12a, c12b, c21a, c21b, c22a, c22b)
-        } else {
-            (
-                compute(&a11, &b11),
-                compute(&a12, &b21),
-                compute(&a11, &b12),
-                compute(&a12, &b22),
-                compute(&a21, &b11),
-                compute(&a22, &b21),
-                compute(&a21, &b12),
-                compute(&a22, &b22),
-            )
-        };
-
-
-    let c11 = add_blocks(&c11a, &c11b);
-    let c12 = add_blocks(&c12a, &c12b);
-    let c21 = add_blocks(&c21a, &c21b);
-    let c22 = add_blocks(&c22a, &c22b);
-
-    insert_block(&mut result, &c11, 0, 0);
-    insert_block(&mut result, &c12, 0, half);
-    insert_block(&mut result, &c21, half, 0);
-    insert_block(&mut result, &c22, half, half);
-
-    result
-}
-
-
-fn strassen_implementation(
-    a: &Vec<Vec<f64>>,
-    b: &Vec<Vec<f64>>,
-    depth: usize,
-    max_parallel_depth: usize,
-) -> Vec<Vec<f64>> {
-    let size = a.len();
-
-    if size <= BASE_CASE {
-        return standard_implementation(a, b);
-    }
-
-    let half = size / 2;
-    let mut result = vec![vec![0.0; size]; size];
-
-    let (a11, a12, a21, a22) = (
-        extract_block(a, 0, 0, half),
-        extract_block(a, 0, half, half),
-        extract_block(a, half, 0, half),
-        extract_block(a, half, half, half),
-    );
-
-    let (b11, b12, b21, b22) = (
-        extract_block(b, 0, 0, half),
-        extract_block(b, 0, half, half),
-        extract_block(b, half, 0, half),
-        extract_block(b, half, half, half),
-    );
-
-    let compute = |x: &Vec<Vec<f64>>, y: &Vec<Vec<f64>>| {
-        strassen_implementation(x, y, depth + 1, max_parallel_depth)
-    };
-
-    let (p1, p2, p3, p4, p5, p6, p7) =
-        if depth < max_parallel_depth {
-            let (p1, p2) = rayon::join(
-                || compute(&add_blocks(&a11, &a22), &add_blocks(&b11, &b22)),
-                || compute(&add_blocks(&a21, &a22), &b11),
-            );
-
-            let (p3, p4) = rayon::join(
-                || compute(&a11, &sub_blocks(&b12, &b22)),
-                || compute(&a22, &sub_blocks(&b21, &b11)),
-            );
-
-            let (p5, p6) = rayon::join(
-                || compute(&add_blocks(&a11, &a12), &b22),
-                || compute(&sub_blocks(&a21, &a11), &add_blocks(&b11, &b12)),
-            );
-
-            let p7 = compute(
-                &sub_blocks(&a12, &a22),
-                &add_blocks(&b21, &b22),
-            );
-
-            (p1, p2, p3, p4, p5, p6, p7)
-        } else {
-            (
-                compute(&add_blocks(&a11, &a22), &add_blocks(&b11, &b22)),
-                compute(&add_blocks(&a21, &a22), &b11),
-                compute(&a11, &sub_blocks(&b12, &b22)),
-                compute(&a22, &sub_blocks(&b21, &b11)),
-                compute(&add_blocks(&a11, &a12), &b22),
-                compute(&sub_blocks(&a21, &a11), &add_blocks(&b11, &b12)),
-                compute(&sub_blocks(&a12, &a22), &add_blocks(&b21, &b22)),
-            )
-        };
-
-    let c11 = add_blocks(
-        &sub_blocks(&add_blocks(&p1, &p4), &p5),
-        &p7,
-    );
-
-    let c12 = add_blocks(&p3, &p5);
-    let c21 = add_blocks(&p2, &p4);
-
-    let c22 = add_blocks(
-        &add_blocks(&sub_blocks(&p1, &p2), &p3),
-        &p6,
-    );
-
-    insert_block(&mut result, &c11, 0, 0);
-    insert_block(&mut result, &c12, 0, half);
-    insert_block(&mut result, &c21, half, 0);
-    insert_block(&mut result, &c22, half, half);
-
-    result
-}
-
-
-fn create_random_matrix(
-    rows: usize, 
-    cols: usize
-) -> Vec<Vec<f64>> {
-    let mut rng = rand::thread_rng();
-
-    let mut matrix = vec![vec![0.0; cols]; rows];
-
-    for i in 0..rows {
-        for j in 0..cols {
-            matrix[i][j] = rng.gen_range(0.0..100.0);
-        }
-    }
-
-    matrix
-}
-
-fn compare_matrices(
-    a: &Vec<Vec<f64>>, 
-    b: &Vec<Vec<f64>>
-) -> bool {
-    let rows: usize = a.len();
-    let cols = b.len();
-    
-    if rows != cols {
-        return false;
-    }
-    
-    const EPSILON: f64 = 1e-6;
-    
-    for i in 0..rows {
-        for j in 0..rows {
-            if (a[i][j] - b[i][j]).abs() > EPSILON {
-                return false;
+        for i in 0..size {
+            for j in 0..size {
+                sub_a.set(i, j, a.get(ar + i, ac + j));
+                sub_b.set(i, j, b.get(br + i, bc + j));
             }
         }
+
+        return standard(&sub_a, &sub_b);
     }
-    
-    true
+
+    let h = size / 2;
+
+    let (c11, c12) = join(
+        || dc_add(a, b, ar, ac, br, bc, ar, ac + h, br + h, bc, h),
+        || dc_add(a, b, ar, ac, br, bc + h, ar, ac + h, br + h, bc + h, h),
+    );
+
+    let (c21, c22) = join(
+        || dc_add(a, b, ar + h, ac, br, bc, ar + h, ac + h, br + h, bc, h),
+        || dc_add(a, b, ar + h, ac, br, bc + h, ar + h, ac + h, br + h, bc + h, h),
+    );
+
+    assemble(c11, c12, c21, c22)
+}
+
+fn dc_add(
+    a: &Matrix, b: &Matrix,
+    ar1: usize, ac1: usize, br1: usize, bc1: usize,
+    ar2: usize, ac2: usize, br2: usize, bc2: usize,
+    size: usize,
+) -> Matrix {
+    let x = dc_mul(a, b, ar1, ac1, br1, bc1, size);
+    let y = dc_mul(a, b, ar2, ac2, br2, bc2, size);
+    add(&x, &y)
 }
 
 
-fn extract_block(
-    matrix: &Vec<Vec<f64>>,
-    row_offset: usize,
-    col_offset: usize,
-    block_size: usize,
-) -> Vec<Vec<f64>> {
-    let mut block = vec![vec![0.0; block_size]; block_size];
-
-    for r in 0..block_size {
-        let src_row = row_offset + r;
-        for c in 0..block_size {
-            block[r][c] = matrix[src_row][col_offset + c];
-        }
+fn strassen(a: &Matrix, b: &Matrix) -> Matrix {
+    if a.n <= BASE_CASE {
+        return standard(a, b);
     }
 
-    block
+    let h = a.n / 2;
+
+    let (p1, p2) = join(
+        || strassen(&add_view(a, 0, 0, h, h), &add_view(b, 0, 0, h, h)),
+        || strassen(&add_view(a, h, 0, h, h), &view(b, 0, 0, h)),
+    );
+
+    let (p3, p4) = join(
+        || strassen(&view(a, 0, 0, h), &sub_view(b, 0, h, h, h)),
+        || strassen(&view(a, h, h, h), &sub_view(b, h, 0, h, h)),
+    );
+
+    let (p5, p6) = join(
+        || strassen(&add_view(a, 0, 0, 0, h), &view(b, h, h, h)),
+        || strassen(&sub_view(a, h, 0, 0, 0), &add_view(b, 0, 0, 0, h)),
+    );
+
+    let p7 = strassen(&sub_view(a, 0, h, h, h), &add_view(b, h, 0, h, h));
+
+    let c11 = add(&sub(&add(&p1, &p4), &p5), &p7);
+    let c12 = add(&p3, &p5);
+    let c21 = add(&p2, &p4);
+    let c22 = add(&sub(&add(&p1, &p3), &p2), &p6);
+
+    assemble(c11, c12, c21, c22)
 }
 
 
-fn insert_block(
-    target: &mut Vec<Vec<f64>>,
-    block: &Vec<Vec<f64>>,
-    row_offset: usize,
-    col_offset: usize,
-) {
-    let block_size = block.len();
-
-    for r in 0..block_size {
-        let dst_row = row_offset + r;
-        for c in 0..block_size {
-            target[dst_row][col_offset + c] = block[r][c];
+fn view(m: &Matrix, r: usize, c: usize, size: usize) -> Matrix {
+    let mut v = Matrix { n: size, data: vec![0.0; size * size] };
+    for i in 0..size {
+        for j in 0..size {
+            v.set(i, j, m.get(r + i, c + j));
         }
     }
+    v
+}
+
+fn add_view(m: &Matrix, r1: usize, c1: usize, r2: usize, c2: usize) -> Matrix {
+    let size = m.n / 2;
+    let mut v = Matrix { n: size, data: vec![0.0; size * size] };
+    for i in 0..size {
+        for j in 0..size {
+            v.set(i, j, m.get(r1 + i, c1 + j) + m.get(r2 + i, c2 + j));
+        }
+    }
+    v
+}
+
+fn sub_view(m: &Matrix, r1: usize, c1: usize, r2: usize, c2: usize) -> Matrix {
+    let size = m.n / 2;
+    let mut v = Matrix { n: size, data: vec![0.0; size * size] };
+    for i in 0..size {
+        for j in 0..size {
+            v.set(i, j, m.get(r1 + i, c1 + j) - m.get(r2 + i, c2 + j));
+        }
+    }
+    v
+}
+
+fn add(x: &Matrix, y: &Matrix) -> Matrix {
+    let mut r = x.clone();
+    for i in 0..r.data.len() {
+        r.data[i] += y.data[i];
+    }
+    r
+}
+
+fn sub(x: &Matrix, y: &Matrix) -> Matrix {
+    let mut r = x.clone();
+    for i in 0..r.data.len() {
+        r.data[i] -= y.data[i];
+    }
+    r
+}
+
+fn assemble(c11: Matrix, c12: Matrix, c21: Matrix, c22: Matrix) -> Matrix {
+    let n = c11.n * 2;
+    let mut r = Matrix { n, data: vec![0.0; n * n] };
+    let h = c11.n;
+
+    for i in 0..h {
+        for j in 0..h {
+            r.set(i, j, c11.get(i, j));
+            r.set(i, j + h, c12.get(i, j));
+            r.set(i + h, j, c21.get(i, j));
+            r.set(i + h, j + h, c22.get(i, j));
+        }
+    }
+    r
 }
 
 
-fn add_blocks(
-    x: &Vec<Vec<f64>>, 
-    y: &Vec<Vec<f64>>
-) -> Vec<Vec<f64>> {
-    let size = x.len();
-    let mut sum = vec![vec![0.0; size]; size];
-
-    for r in 0..size {
-        for c in 0..size {
-            sum[r][c] = x[r][c] + y[r][c];
-        }
-    }
-
-    sum
+fn approx_equal(a: &Matrix, b: &Matrix) -> bool {
+    const EPS: f64 = 1e-8;
+    a.data.iter().zip(&b.data).all(|(x, y)| {
+        let diff = (x - y).abs();
+        diff <= EPS * x.abs().max(y.abs()).max(1.0)
+    })
 }
 
 
-fn sub_blocks(
-    x: &Vec<Vec<f64>>, 
-    y: &Vec<Vec<f64>>
-) -> Vec<Vec<f64>> {
-    let size = x.len();
-    let mut diff = vec![vec![0.0; size]; size];
+fn main() {
+    let mut args = env::args().skip(1);
+    let n: usize = args.next().expect("missing size").parse().expect("n must be integer");
+    let test = matches!(args.next().as_deref(), Some("test"));
 
-    for r in 0..size {
-        for c in 0..size {
-            diff[r][c] = x[r][c] - y[r][c];
-        }
+    let a = Matrix::new(n);
+    let b = Matrix::new(n);
+
+    let (r_std, t_std) = measure(|| standard(&a, &b));
+    let (r_dc, t_dc) = measure(|| dc_mul(&a, &b, 0, 0, 0, 0, n));
+    let (r_str, t_str) = measure(|| strassen(&a, &b));
+
+    if test {
+        println!("{} {} {}", t_std, t_dc, t_str);
+        return;
     }
 
-    diff
+    println!("Correctness:");
+    println!("DC: {}", approx_equal(&r_std, &r_dc));
+    println!("Strassen: {}", approx_equal(&r_std, &r_str));
+
+    println!("\nTimes (ms):");
+    println!("Standard: {}", t_std);
+    println!("DC: {}", t_dc);
+    println!("Strassen: {}", t_str);
 }
