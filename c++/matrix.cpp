@@ -137,13 +137,21 @@ Matrix strassen(const Matrix& A, const Matrix& B) {
     auto B21 = view(B, h, 0, h);
     auto B22 = view(B, h, h, h);
 
-    auto M1 = strassen(add(A11, A22), add(B11, B22));
-    auto M2 = strassen(add(A21, A22), B11);
-    auto M3 = strassen(A11, sub(B12, B22));
-    auto M4 = strassen(A22, sub(B21, B11));
-    auto M5 = strassen(add(A11, A12), B22);
-    auto M6 = strassen(sub(A21, A11), add(B11, B12));
-    auto M7 = strassen(sub(A12, A22), add(B21, B22));
+    auto f1 = std::async(std::launch::async, strassen, add(A11, A22), add(B11, B22));
+    auto f2 = std::async(std::launch::async, strassen, add(A21, A22), B11);
+    auto f3 = std::async(std::launch::async, strassen, A11, sub(B12, B22));
+    auto f4 = std::async(std::launch::async, strassen, A22, sub(B21, B11));
+    auto f5 = std::async(std::launch::async, strassen, add(A11, A12), B22);
+    auto f6 = std::async(std::launch::async, strassen, sub(A21, A11), add(B11, B12));
+    auto f7 = std::async(std::launch::async, strassen, sub(A12, A22), add(B21, B22));
+
+    Matrix M1 = f1.get();
+    Matrix M2 = f2.get();
+    Matrix M3 = f3.get();
+    Matrix M4 = f4.get();
+    Matrix M5 = f5.get();
+    Matrix M6 = f6.get();
+    Matrix M7 = f7.get();
 
     Matrix C(A.n);
     for (size_t i = 0; i < h; ++i)
